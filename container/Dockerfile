@@ -35,6 +35,7 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 # Copy the downloaded binary so it's accessible at /home/node/.pinchtab/bin/.
 RUN npm install -g agent-browser pinchtab @anthropic-ai/claude-code \
     docx pptxgenjs exceljs nodemailer \
+    @polymarket/clob-client ethers@5 \
     && cp -r /root/.pinchtab /home/node/.pinchtab \
     && chown -R node:node /home/node/.pinchtab
 

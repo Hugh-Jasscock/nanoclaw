@@ -209,6 +209,11 @@ function readSecrets(): Record<string, string> {
     'ANTHROPIC_API_KEY',
     'ICLOUD_EMAIL',
     'ICLOUD_APP_PASSWORD',
+    'POLYMARKET_PRIVATE_KEY',
+    'POLYMARKET_ADDRESS',
+    'POLYMARKET_API_KEY',
+    'POLYMARKET_SECRET',
+    'POLYMARKET_PASSPHRASE',
   ]);
 }
 
