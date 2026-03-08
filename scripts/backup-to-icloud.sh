@@ -3,7 +3,7 @@
 # Copies group data (CLAUDE.md, kanban, conversations) with a dated snapshot.
 
 SRC="$HOME/nanoclaw/groups/telegram_main"
-DEST="$HOME/Library/Mobile Documents/com~apple~CloudDocs/NanoClaw-Backup"
+DEST="$HOME/Documents/NanoClaw-Backup"
 DATE=$(date +%Y-%m-%d)
 LATEST="$DEST/latest"
 SNAPSHOT="$DEST/snapshots/$DATE"
