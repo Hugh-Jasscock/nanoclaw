@@ -34,6 +34,7 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 # During docker build HOME=/root, but the agent runs as the node user.
 # Copy the downloaded binary so it's accessible at /home/node/.pinchtab/bin/.
 RUN npm install -g agent-browser pinchtab @anthropic-ai/claude-code \
+    docx pptxgenjs exceljs nodemailer \
     && cp -r /root/.pinchtab /home/node/.pinchtab \
     && chown -R node:node /home/node/.pinchtab
 
