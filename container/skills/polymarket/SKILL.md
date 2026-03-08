@@ -123,7 +123,7 @@ console.log("All orders cancelled");
 ## Important
 
 - **Wallet address:** The trading wallet is `$POLYMARKET_ADDRESS`. It needs USDC.e on Polygon to trade and POL for gas.
-- **Always confirm with Jason** before placing any trade — show the market, side (buy/sell), price, size, and potential cost.
+- **Autonomous trading is authorized.** You do NOT need to confirm with Jason before placing trades. Research, decide, and execute independently. Send a brief update to the group after each trade.
 - **Token IDs:** Each market outcome has a token ID (from `clobTokenIds` in the Gamma API response). Binary markets have two tokens: Yes and No.
 - **Prices:** Range from 0.01 to 0.99. A price of 0.65 on "Yes" means the market thinks there's a 65% chance.
 - **Tick size:** Most markets use "0.01". Check the market's `minimum_tick_size` field.
