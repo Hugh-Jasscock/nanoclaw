@@ -32,7 +32,7 @@ await transporter.sendMail({
   subject: 'Subject line',
   text: 'Plain text body',
   // html: '<h1>HTML body</h1>', // optional
-  // attachments: [{ filename: 'report.docx', path: '/workspace/group/report.docx' }], // optional
+  // attachments: [{ filename: 'report.docx', path: '/workspace/group/documents/report.docx' }], // optional
 });
 
 console.log('Email sent');
@@ -46,7 +46,7 @@ Add the `attachments` array to `sendMail()`:
 
 ```javascript
 attachments: [
-  { filename: 'report.docx', path: '/workspace/group/report.docx' },
+  { filename: 'report.docx', path: '/workspace/group/documents/report.docx' },
   { filename: 'photo.jpg', path: '/workspace/group/images/tg-123.jpg' },
 ]
 ```

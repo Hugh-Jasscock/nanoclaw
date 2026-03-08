@@ -6,7 +6,7 @@ allowed-tools: Bash(documents:*), Write
 
 # Document Generation
 
-Create Word, PowerPoint, and Excel files using globally installed npm packages. Write a Node.js script to `/tmp/gen-doc.mjs`, run it, and the output file goes to `/workspace/group/`.
+Create Word, PowerPoint, and Excel files using globally installed npm packages. Write a Node.js script to `/tmp/gen-doc.mjs`, run it, and the output file goes to `/workspace/group/documents/`.
 
 ## Word Documents (docx)
 
@@ -14,6 +14,8 @@ Create Word, PowerPoint, and Excel files using globally installed npm packages. 
 // /tmp/gen-doc.mjs
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType } from 'docx';
 import fs from 'fs';
+
+fs.mkdirSync('/workspace/group/documents', { recursive: true });
 
 const doc = new Document({
   sections: [{
@@ -27,7 +29,7 @@ const doc = new Document({
 });
 
 const buffer = await Packer.toBuffer(doc);
-fs.writeFileSync('/workspace/group/report.docx', buffer);
+fs.writeFileSync('/workspace/group/documents/report.docx', buffer);
 console.log('Created report.docx');
 ```
 
@@ -50,7 +52,10 @@ slide = pptx.addSlide();
 slide.addText('Slide 2 Title', { x: 0.5, y: 0.5, w: '90%', fontSize: 28, bold: true });
 slide.addText('• Point one\n• Point two\n• Point three', { x: 0.5, y: 1.5, w: '90%', fontSize: 16 });
 
-await pptx.writeFile({ fileName: '/workspace/group/presentation.pptx' });
+import fs from 'fs';
+fs.mkdirSync('/workspace/group/documents', { recursive: true });
+
+await pptx.writeFile({ fileName: '/workspace/group/documents/presentation.pptx' });
 console.log('Created presentation.pptx');
 ```
 
@@ -77,7 +82,10 @@ sheet.addRow({ name: 'Item 2', amount: 250, date: '2026-03-08' });
 sheet.getRow(1).font = { bold: true };
 sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
 
-await workbook.xlsx.writeFile('/workspace/group/spreadsheet.xlsx');
+import fs from 'fs';
+fs.mkdirSync('/workspace/group/documents', { recursive: true });
+
+await workbook.xlsx.writeFile('/workspace/group/documents/spreadsheet.xlsx');
 console.log('Created spreadsheet.xlsx');
 ```
 
@@ -85,12 +93,12 @@ console.log('Created spreadsheet.xlsx');
 
 1. Write the generation script to `/tmp/gen-doc.mjs`
 2. Run it: `node /tmp/gen-doc.mjs`
-3. The file is saved to `/workspace/group/` where the user can access it
+3. The file is saved to `/workspace/group/documents/` where the user can access it
 4. Tell the user the file is ready
 
 ## Tips
 
-- Always save output files to `/workspace/group/`
+- Always save output files to `/workspace/group/documents/` (create the directory first with `fs.mkdirSync('/workspace/group/documents', { recursive: true })`)
 - Use `.mjs` extension for ESM imports
 - For tables in Word, use the Table/TableRow/TableCell classes
 - For charts in Excel, use `workbook.addChart()` — but note chart rendering requires an Excel client
