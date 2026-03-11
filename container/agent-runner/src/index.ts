@@ -519,6 +519,22 @@ async function main(): Promise<void> {
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
   let sessionId = containerInput.sessionId;
+
+  // Verify the session transcript exists before attempting to resume.
+  // If the file was deleted (e.g. to clear a bloated session), fall back
+  // to creating a new session instead of crashing in a loop.
+  if (sessionId) {
+    const projectDir = path.join(
+      process.env.HOME || '/home/node',
+      '.claude', 'projects', '-workspace-group',
+    );
+    const transcriptPath = path.join(projectDir, `${sessionId}.jsonl`);
+    if (!fs.existsSync(transcriptPath)) {
+      log(`Session transcript missing for ${sessionId}, starting fresh`);
+      sessionId = undefined;
+    }
+  }
+
   fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
   // Clean up stale _close sentinel from previous container runs
