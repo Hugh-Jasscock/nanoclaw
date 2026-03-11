@@ -261,6 +261,7 @@ export class TelegramChannel implements Channel {
       if (!group) return;
 
       const photos = ctx.message.photo;
+      if (!photos || photos.length === 0) return;
       // Telegram sends multiple sizes; pick the largest
       const photo = photos[photos.length - 1];
 
@@ -280,14 +281,10 @@ export class TelegramChannel implements Channel {
         await downloadFile(fileUrl, filePath);
 
         const containerPath = `/workspace/group/images/${filename}`;
-        const caption = ctx.message.caption
-          ? ` ${ctx.message.caption}`
-          : '';
+        const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
         const content = `[Photo: ${containerPath}]${caption}`;
 
-        const timestamp = new Date(
-          ctx.message.date * 1000,
-        ).toISOString();
+        const timestamp = new Date(ctx.message.date * 1000).toISOString();
         const senderName =
           ctx.from?.first_name ||
           ctx.from?.username ||
@@ -295,8 +292,7 @@ export class TelegramChannel implements Channel {
           'Unknown';
 
         const isGroup =
-          ctx.chat.type === 'group' ||
-          ctx.chat.type === 'supergroup';
+          ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
         this.opts.onChatMetadata(
           chatJid,
           timestamp,
@@ -350,9 +346,8 @@ export class TelegramChannel implements Channel {
             { username: botInfo.username, id: botInfo.id },
             'Telegram bot connected',
           );
-          console.log(`\n  Telegram bot: @${botInfo.username}`);
-          console.log(
-            `  Send /chatid to the bot to get a chat's registration ID\n`,
+          logger.info(
+            `Telegram bot: @${botInfo.username}. Send /chatid to get a chat's registration ID`,
           );
           resolve();
         },
