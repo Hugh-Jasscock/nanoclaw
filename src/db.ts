@@ -158,6 +158,13 @@ export function _initTestDatabase(): void {
   createSchema(db);
 }
 
+export function closeDatabase(): void {
+  if (db) {
+    db.close();
+    logger.info('Database closed');
+  }
+}
+
 /**
  * Store chat metadata only (no message content).
  * Used for all chats to enable group discovery without storing sensitive content.

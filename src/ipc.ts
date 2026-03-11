@@ -27,12 +27,32 @@ export interface IpcDeps {
 
 let ipcWatcherRunning = false;
 
+function cleanupOldIpcErrors(): void {
+  const errorDir = path.join(DATA_DIR, 'ipc', 'errors');
+  if (!fs.existsSync(errorDir)) return;
+
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  try {
+    for (const file of fs.readdirSync(errorDir)) {
+      const filePath = path.join(errorDir, file);
+      const stat = fs.statSync(filePath);
+      if (stat.mtimeMs < cutoff) {
+        fs.unlinkSync(filePath);
+        logger.info({ file }, 'Cleaned up old IPC error file');
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Failed to clean up IPC error directory');
+  }
+}
+
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
     logger.debug('IPC watcher already running, skipping duplicate start');
     return;
   }
   ipcWatcherRunning = true;
+  cleanupOldIpcErrors();
 
   const ipcBaseDir = path.join(DATA_DIR, 'ipc');
   fs.mkdirSync(ipcBaseDir, { recursive: true });

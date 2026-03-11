@@ -33,6 +33,7 @@ import {
   getNewMessages,
   getRegisteredGroup,
   getRouterState,
+  closeDatabase,
   initDatabase,
   setRegisteredGroup,
   setRouterState,
@@ -475,6 +476,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'Shutdown signal received');
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
+    closeDatabase();
     process.exit(0);
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
