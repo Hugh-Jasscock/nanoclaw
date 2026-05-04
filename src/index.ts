@@ -3,7 +3,10 @@ import path from 'path';
 
 import {
   ASSISTANT_NAME,
+  DATA_DIR,
+  GROUPS_DIR,
   IDLE_TIMEOUT,
+  MAX_SESSION_AGE,
   POLL_INTERVAL,
   TELEGRAM_BOT_POOL,
   TIMEZONE,
@@ -33,6 +36,7 @@ import {
   getNewMessages,
   getRegisteredGroup,
   getRouterState,
+  clearSession,
   closeDatabase,
   initDatabase,
   setRegisteredGroup,
@@ -260,6 +264,59 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * Check if a session transcript is older than MAX_SESSION_AGE.
+ * Uses the file's birth time (creation) to determine age.
+ */
+function isSessionExpired(groupFolder: string, sessionId: string): boolean {
+  const transcriptPath = path.join(
+    DATA_DIR,
+    'sessions',
+    groupFolder,
+    '.claude',
+    'projects',
+    '-workspace-group',
+    `${sessionId}.jsonl`,
+  );
+  try {
+    const stat = fs.statSync(transcriptPath);
+    // Use birthtime (creation) if available, otherwise mtime
+    const created = stat.birthtime.getTime() > 0 ? stat.birthtime : stat.mtime;
+    return Date.now() - created.getTime() > MAX_SESSION_AGE;
+  } catch {
+    return false; // Can't check — let the container handle it
+  }
+}
+
+/**
+ * Load a summary from the most recent conversation archive for a group.
+ * Used to give context when starting a fresh session after expiry.
+ */
+function getLastConversationSummary(groupFolder: string): string | null {
+  const conversationsDir = path.join(GROUPS_DIR, groupFolder, 'conversations');
+  try {
+    const files = fs
+      .readdirSync(conversationsDir)
+      .filter((f) => f.endsWith('.md'))
+      .sort()
+      .reverse();
+    if (files.length === 0) return null;
+
+    const content = fs.readFileSync(
+      path.join(conversationsDir, files[0]),
+      'utf-8',
+    );
+    // Truncate to ~4000 chars to avoid bloating the prompt
+    const truncated =
+      content.length > 4000
+        ? content.slice(0, 4000) + '\n\n[... truncated]'
+        : content;
+    return truncated;
+  } catch {
+    return null;
+  }
+}
+
 async function runAgent(
   group: RegisteredGroup,
   prompt: string,
@@ -267,7 +324,23 @@ async function runAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
-  const sessionId = sessions[group.folder];
+  let sessionId: string | undefined = sessions[group.folder];
+
+  // Expire old sessions to prevent unbounded context growth
+  if (sessionId && isSessionExpired(group.folder, sessionId)) {
+    logger.info(
+      { group: group.name, sessionId },
+      'Session expired (age > MAX_SESSION_AGE), starting fresh',
+    );
+    const summary = getLastConversationSummary(group.folder);
+    if (summary) {
+      prompt = `<previous-session-context>\nHere is a summary of your last conversation for continuity:\n\n${summary}\n</previous-session-context>\n\n${prompt}`;
+    }
+    sessionId = undefined;
+    // Clear from cache and DB so the container starts fresh
+    delete sessions[group.folder];
+    clearSession(group.folder);
+  }
 
   // Update tasks snapshot for container to read (filtered by group)
   const tasks = getAllTasks();
@@ -297,7 +370,7 @@ async function runAgent(
   // Wrap onOutput to track session ID from streamed results
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
-        if (output.newSessionId) {
+        if (output.newSessionId && output.status !== 'error') {
           sessions[group.folder] = output.newSessionId;
           setSession(group.folder, output.newSessionId);
         }
@@ -321,15 +394,18 @@ async function runAgent(
       wrappedOnOutput,
     );
 
-    if (output.newSessionId) {
+    if (output.newSessionId && output.status !== 'error') {
       sessions[group.folder] = output.newSessionId;
       setSession(group.folder, output.newSessionId);
     }
 
     if (output.status === 'error') {
+      // Clear the corrupted session so retries start fresh
+      delete sessions[group.folder];
+      clearSession(group.folder);
       logger.error(
         { group: group.name, error: output.error },
-        'Container agent error',
+        'Container agent error, cleared session for fresh retry',
       );
       return 'error';
     }

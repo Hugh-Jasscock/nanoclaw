@@ -185,8 +185,13 @@ async function runTask(
       async (streamedOutput: ContainerOutput) => {
         if (streamedOutput.result) {
           result = streamedOutput.result;
-          // Forward result to user (sendMessage handles formatting)
-          await deps.sendMessage(task.chat_jid, streamedOutput.result);
+          // Strip <internal>...</internal> blocks — agents use these for silent output
+          const userVisible = streamedOutput.result
+            .replace(/<internal>[\s\S]*?<\/internal>/gi, '')
+            .trim();
+          if (userVisible) {
+            await deps.sendMessage(task.chat_jid, userVisible);
+          }
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {

@@ -46,6 +46,8 @@ export interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  /** True if the container sent any streaming output before exiting. */
+  hadStreamingOutput?: boolean;
 }
 
 interface VolumeMount {
@@ -78,6 +80,16 @@ function buildVolumeMounts(
     mounts.push({
       hostPath: groupDir,
       containerPath: '/workspace/group',
+      readonly: false,
+    });
+
+    // Main gets global directory writable so it can publish shared context
+    // that other group instances can read. Non-main groups get it read-only.
+    const globalDir = path.join(GROUPS_DIR, 'global');
+    fs.mkdirSync(globalDir, { recursive: true });
+    mounts.push({
+      hostPath: globalDir,
+      containerPath: '/workspace/global',
       readonly: false,
     });
   } else {
@@ -177,7 +189,8 @@ function buildVolumeMounts(
     group.folder,
     'agent-runner-src',
   );
-  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
+  if (fs.existsSync(agentRunnerSrc)) {
+    // Always sync from source — stale cached copies hide bug fixes
     fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
   }
   mounts.push({
@@ -550,6 +563,23 @@ export async function runContainerAgent(
           },
           'Container exited with error',
         );
+
+        // Wait for the output chain to settle before resolving.
+        // The agent may have already sent messages to Telegram via onOutput
+        // before crashing — if we resolve before the chain settles,
+        // outputSentToUser won't be set yet and the caller will roll back
+        // the cursor, causing duplicate messages on retry.
+        if (onOutput) {
+          outputChain.then(() => {
+            resolve({
+              status: 'error',
+              result: null,
+              hadStreamingOutput,
+              error: `Container exited with code ${code}: ${stderr.slice(-200)}`,
+            });
+          });
+          return;
+        }
 
         resolve({
           status: 'error',

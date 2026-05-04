@@ -102,12 +102,19 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   (targetGroup && targetGroup.folder === sourceGroup)
                 ) {
                   if (data.sender && data.chatJid.startsWith('tg:')) {
-                    await sendPoolMessage(
+                    const sent = await sendPoolMessage(
                       data.chatJid,
                       data.text,
                       data.sender,
                       sourceGroup,
                     );
+                    if (!sent) {
+                      // No pool bots — fall back to main bot with sender prefix
+                      await deps.sendMessage(
+                        data.chatJid,
+                        `*[${data.sender}]* ${data.text}`,
+                      );
+                    }
                   } else {
                     await deps.sendMessage(data.chatJid, data.text);
                   }

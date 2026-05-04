@@ -1,6 +1,7 @@
 import fs from 'fs';
 import https from 'https';
 import path from 'path';
+import sharp from 'sharp';
 
 import { Api, Bot } from 'grammy';
 
@@ -55,9 +56,9 @@ export async function sendPoolMessage(
   text: string,
   sender: string,
   groupFolder: string,
-): Promise<void> {
+): Promise<boolean> {
   if (poolApis.length === 0) {
-    return;
+    return false;
   }
 
   const key = `${groupFolder}:${sender}`;
@@ -96,8 +97,10 @@ export async function sendPoolMessage(
       { chatId, sender, poolIndex: idx, length: text.length },
       'Pool message sent',
     );
+    return true;
   } catch (err) {
     logger.error({ chatId, sender, err }, 'Failed to send pool message');
+    return false;
   }
 }
 
@@ -279,6 +282,24 @@ export class TelegramChannel implements Channel {
         const filePath = path.join(imagesDir, filename);
 
         await downloadFile(fileUrl, filePath);
+
+        // Resize to fit within 1600px to stay under Claude's 2000px many-image limit
+        const MAX_DIM = 1600;
+        const meta = await sharp(filePath).metadata();
+        if (
+          meta.width &&
+          meta.height &&
+          (meta.width > MAX_DIM || meta.height > MAX_DIM)
+        ) {
+          await sharp(filePath)
+            .resize(MAX_DIM, MAX_DIM, {
+              fit: 'inside',
+              withoutEnlargement: true,
+            })
+            .jpeg({ quality: 85 })
+            .toFile(filePath + '.tmp');
+          fs.renameSync(filePath + '.tmp', filePath);
+        }
 
         const containerPath = `/workspace/group/images/${filename}`;
         const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
