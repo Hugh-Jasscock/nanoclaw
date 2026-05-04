@@ -1,22 +1,41 @@
 #!/bin/bash
-# Daily backup of Woodrow's memory to iCloud Drive.
-# Copies group data (CLAUDE.md, kanban, conversations) with a dated snapshot.
+# Daily local backup of Woodrow's group data.
+# Despite the legacy filename, iCloud Desktop & Documents sync is OFF — this
+# writes only to the local ~/Documents/NanoClaw-Backup tree.
 
 SRC="$HOME/nanoclaw/groups/telegram_main"
 DEST="$HOME/Documents/NanoClaw-Backup"
 DATE=$(date +%Y-%m-%d)
 LATEST="$DEST/latest"
 SNAPSHOT="$DEST/snapshots/$DATE"
+LOG="$HOME/nanoclaw/logs/backup.log"
+
+# Skip backup if the disk is too tight to safely write a snapshot.
+FREE_GB=$(df -g / | tail -1 | awk '{print $4}')
+if [ "$FREE_GB" -lt 20 ]; then
+  echo "$(date '+%Y-%m-%d %H:%M') — Backup skipped: only ${FREE_GB}GB free (need 20GB)" >> "$LOG"
+  exit 0
+fi
 
 mkdir -p "$LATEST" "$SNAPSHOT"
 
-# Sync latest (always up to date)
-rsync -a --exclude='logs/' --exclude='images/' "$SRC/" "$LATEST/"
+EXCLUDES=(
+  --exclude='logs/'
+  --exclude='images/'
+  --exclude='node_modules/'
+  --exclude='.git/'
+  --exclude='.next/'
+  --exclude='.expo/'
+  --exclude='dist/'
+  --exclude='build/'
+  --exclude='.cache/'
+  --exclude='.DS_Store'
+)
 
-# Daily snapshot (one per day, keeps history)
-rsync -a --exclude='logs/' --exclude='images/' "$SRC/" "$SNAPSHOT/"
+rsync -a --delete "${EXCLUDES[@]}" "$SRC/" "$LATEST/"
+rsync -a "${EXCLUDES[@]}" "$SRC/" "$SNAPSHOT/"
 
-# Clean up snapshots older than 30 days
-find "$DEST/snapshots" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+# Keep last 7 daily snapshots (was 30 — 154 GiB stranded in iCloud taught us better).
+find "$DEST/snapshots" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
 
-echo "$(date): Backup complete → $SNAPSHOT"
+echo "$(date '+%Y-%m-%d %H:%M') — Backup complete → $SNAPSHOT" >> "$LOG"
