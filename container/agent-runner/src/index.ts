@@ -432,7 +432,8 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        'mcp__playwright__*'
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -446,6 +447,13 @@ async function runQuery(
             NANOCLAW_CHAT_JID: containerInput.chatJid,
             NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+          },
+        },
+        playwright: {
+          command: 'playwright-mcp',
+          args: ['--headless', '--browser', 'chromium'],
+          env: {
+            PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: '/usr/bin/chromium',
           },
         },
       },
@@ -532,6 +540,21 @@ async function main(): Promise<void> {
     if (!fs.existsSync(transcriptPath)) {
       log(`Session transcript missing for ${sessionId}, starting fresh`);
       sessionId = undefined;
+    } else {
+      // Validate transcript integrity — a truncated/corrupt file will crash the SDK
+      try {
+        const content = fs.readFileSync(transcriptPath, 'utf-8').trimEnd();
+        if (content.length === 0) {
+          log(`Session transcript empty for ${sessionId}, starting fresh`);
+          sessionId = undefined;
+        } else {
+          const lastLine = content.split('\n').pop() || '';
+          JSON.parse(lastLine); // throws if truncated
+        }
+      } catch {
+        log(`Session transcript corrupt for ${sessionId}, starting fresh`);
+        sessionId = undefined;
+      }
     }
   }
 
@@ -557,7 +580,19 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      let queryResult;
+      try {
+        queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      } catch (resumeErr) {
+        if (sessionId) {
+          log(`Session resume failed (${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}), retrying with fresh session`);
+          sessionId = undefined;
+          resumeAt = undefined;
+          queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+        } else {
+          throw resumeErr;
+        }
+      }
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
@@ -594,7 +629,6 @@ async function main(): Promise<void> {
     writeOutput({
       status: 'error',
       result: null,
-      newSessionId: sessionId,
       error: errorMessage
     });
     process.exit(1);

@@ -25,22 +25,16 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Chromium path for agent-browser
-ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
+# Playwright MCP: use system Chromium, skip downloading bundled browser
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
-# Install agent-browser, pinchtab, and claude-code globally
-# Pinchtab postinstall downloads a native Go binary to $HOME/.pinchtab/bin/.
-# During docker build HOME=/root, but the agent runs as the node user.
-# Copy the downloaded binary so it's accessible at /home/node/.pinchtab/bin/.
-RUN npm install -g agent-browser pinchtab @anthropic-ai/claude-code \
+# Install Playwright MCP, claude-code, and utilities globally
+RUN npm install -g @playwright/mcp @anthropic-ai/claude-code \
     docx pptxgenjs exceljs nodemailer \
-    @polymarket/clob-client ethers@5 \
-    && cp -r /root/.pinchtab /home/node/.pinchtab \
-    && chown -R node:node /home/node/.pinchtab
+    @polymarket/clob-client ethers@5
 
-# Pinchtab: point CLI at host-side server (Apple Container gateway)
-ENV PINCHTAB_URL=http://192.168.64.1:19867
+ENV HOME=/home/node
 
 # Create app directory
 WORKDIR /app
