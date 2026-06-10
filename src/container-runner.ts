@@ -220,6 +220,7 @@ function readSecrets(): Record<string, string> {
   return readEnvFile([
     'CLAUDE_CODE_OAUTH_TOKEN',
     'ANTHROPIC_API_KEY',
+    'ANTHROPIC_MODEL',
     'ICLOUD_EMAIL',
     'ICLOUD_APP_PASSWORD',
     'POLYMARKET_PRIVATE_KEY',
