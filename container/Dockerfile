@@ -30,7 +30,8 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # Install Playwright MCP, claude-code, and utilities globally
-RUN npm install -g @playwright/mcp @anthropic-ai/claude-code \
+ARG CLAUDE_CODE_VERSION=2.1.281
+RUN npm install -g @playwright/mcp @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
     docx pptxgenjs exceljs nodemailer \
     @polymarket/clob-client ethers@5
 
