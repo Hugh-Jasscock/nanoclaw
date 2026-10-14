@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import net from 'net';
 
 import {
   ASSISTANT_NAME,
@@ -59,6 +60,11 @@ import {
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+
+// Node gives each connection attempt only 250 ms by default (Happy Eyeballs).
+// With IPv6 unreachable and IPv4 to Telegram slower than that, every
+// sendMessage fails with ETIMEDOUT. Allow 2 s per attempt instead.
+net.setDefaultAutoSelectFamilyAttemptTimeout?.(2000);
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';

@@ -421,6 +421,16 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
+      // Resilience: if the primary model (ANTHROPIC_MODEL, e.g. claude-fable-5)
+      // is overloaded (529), auto-retry on a stable fallback instead of failing.
+      // Override with ANTHROPIC_FALLBACK_MODEL (must be in readSecrets allowlist).
+      fallbackModel: process.env.ANTHROPIC_FALLBACK_MODEL || 'claude-opus-4-8',
+      // Cost routing: scheduled/background tasks (monitors, briefings, cron)
+      // don't need Fable — run them on Sonnet, overriding ANTHROPIC_MODEL for
+      // these containers only. Interactive chat leaves this undefined and stays
+      // on the env model (Fable 5). The `model` option only accepts tier
+      // aliases (sonnet|opus|haiku|inherit), not full IDs.
+      model: containerInput.isScheduledTask ? 'sonnet' : undefined,
       systemPrompt: globalClaudeMd
         ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
         : undefined,
