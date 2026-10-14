@@ -4,6 +4,7 @@ import { _initTestDatabase, createTask, getTaskById } from './db.js';
 import {
   _resetSchedulerLoopForTests,
   computeNextRun,
+  nextRunAfterResult,
   startSchedulerLoop,
 } from './task-scheduler.js';
 
@@ -125,5 +126,56 @@ describe('task scheduler', () => {
     const offset =
       (new Date(nextRun!).getTime() - new Date(scheduledTime).getTime()) % ms;
     expect(offset).toBe(0);
+  });
+
+  describe('nextRunAfterResult network retry', () => {
+    const NETWORK_ERROR =
+      'Container exited with code 1: API Error: Connection refused (ECONNREFUSED)';
+    const makeTask = (overrides = {}) => ({
+      id: 'retry-test',
+      group_folder: 'test',
+      chat_jid: 'test@g.us',
+      prompt: 'test',
+      schedule_type: 'cron' as const,
+      schedule_value: '0 2 * * *', // daily, so the regular next run is far away
+      context_mode: 'isolated' as const,
+      next_run: new Date(Date.now() - 1000).toISOString(),
+      last_run: null,
+      last_result: null,
+      status: 'active' as const,
+      created_at: '2026-01-01T00:00:00.000Z',
+      ...overrides,
+    });
+
+    it('retries once 10 minutes later after a network error', () => {
+      const task = makeTask();
+      const first = nextRunAfterResult(task, NETWORK_ERROR);
+      expect(new Date(first!).getTime()).toBe(Date.now() + 10 * 60_000);
+
+      // The retry also failing falls back to the regular schedule
+      expect(nextRunAfterResult(task, NETWORK_ERROR)).toBe(
+        computeNextRun(task),
+      );
+    });
+
+    it('does not retry other errors or successful runs', () => {
+      const task = makeTask();
+      expect(nextRunAfterResult(task, 'Some other failure')).toBe(
+        computeNextRun(task),
+      );
+      expect(nextRunAfterResult(task, null)).toBe(computeNextRun(task));
+    });
+
+    it('skips the retry when the regular next run comes sooner', () => {
+      const task = makeTask({ schedule_value: '*/5 * * * *' });
+      expect(nextRunAfterResult(task, NETWORK_ERROR)).toBe(
+        computeNextRun(task),
+      );
+    });
+
+    it('keeps a failed once-task alive for its retry', () => {
+      const task = makeTask({ schedule_type: 'once' as const });
+      expect(nextRunAfterResult(task, NETWORK_ERROR)).not.toBeNull();
+    });
   });
 });

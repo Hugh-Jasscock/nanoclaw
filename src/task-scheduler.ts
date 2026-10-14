@@ -62,6 +62,35 @@ export function computeNextRun(task: ScheduledTask): string | null {
   return null;
 }
 
+// Transient network failures (host briefly refusing outbound connections) get one retry
+const NETWORK_RETRY_DELAY_MS = 10 * 60_000;
+const NETWORK_ERROR_PATTERN =
+  /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|Connection refused/i;
+const retriedTasks = new Set<string>();
+
+/**
+ * Pick when a task runs next. A run that failed on a network error is retried
+ * once after NETWORK_RETRY_DELAY_MS, unless its regular next run comes sooner.
+ */
+export function nextRunAfterResult(
+  task: ScheduledTask,
+  error: string | null,
+): string | null {
+  const nextRun = computeNextRun(task);
+  const wasRetry = retriedTasks.delete(task.id);
+  if (!error || wasRetry || !NETWORK_ERROR_PATTERN.test(error)) return nextRun;
+
+  const retryAt = Date.now() + NETWORK_RETRY_DELAY_MS;
+  if (nextRun && new Date(nextRun).getTime() <= retryAt) return nextRun;
+
+  retriedTasks.add(task.id);
+  logger.warn(
+    { taskId: task.id, retryAt: new Date(retryAt).toISOString() },
+    'Task failed on a network error, retrying once',
+  );
+  return new Date(retryAt).toISOString();
+}
+
 export interface SchedulerDependencies {
   registeredGroups: () => Record<string, RegisteredGroup>;
   getSessions: () => Record<string, string>;
@@ -233,7 +262,7 @@ async function runTask(
     error,
   });
 
-  const nextRun = computeNextRun(task);
+  const nextRun = nextRunAfterResult(task, error);
   const resultSummary = error
     ? `Error: ${error}`
     : result
@@ -283,4 +312,5 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
 /** @internal - for tests only. */
 export function _resetSchedulerLoopForTests(): void {
   schedulerRunning = false;
+  retriedTasks.clear();
 }
