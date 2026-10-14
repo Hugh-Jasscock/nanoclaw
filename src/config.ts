@@ -43,6 +43,8 @@ export const CONTAINER_TIMEOUT = parseInt(
   process.env.CONTAINER_TIMEOUT || '1800000',
   10,
 );
+// Per-container memory limit; long research runs came close to the old 1 GB default
+export const CONTAINER_MEMORY = process.env.CONTAINER_MEMORY || '2G';
 export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
   process.env.CONTAINER_MAX_OUTPUT_SIZE || '10485760',
   10,
