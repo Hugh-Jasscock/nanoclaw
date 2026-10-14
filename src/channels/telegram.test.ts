@@ -577,31 +577,43 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('stores voice message with placeholder', async () => {
+    it('stores voice message placeholder when download fails', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createMediaCtx({});
+      const ctx = {
+        ...createMediaCtx({ extra: { voice: { file_id: 'voice-1' } } }),
+        api: { getFile: vi.fn().mockRejectedValue(new Error('network')) },
+      };
       await triggerMediaMessage('message:voice', ctx);
 
+      expect(ctx.api.getFile).toHaveBeenCalledWith('voice-1');
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.objectContaining({ content: '[Voice message]' }),
+        expect.objectContaining({
+          content: '[Voice message - download failed]',
+        }),
       );
     });
 
-    it('stores audio with placeholder', async () => {
+    it('stores audio placeholder when download fails', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createMediaCtx({});
+      const ctx = {
+        ...createMediaCtx({
+          extra: { audio: { file_id: 'audio-1', file_name: 'song.mp3' } },
+        }),
+        api: { getFile: vi.fn().mockRejectedValue(new Error('network')) },
+      };
       await triggerMediaMessage('message:audio', ctx);
 
+      expect(ctx.api.getFile).toHaveBeenCalledWith('audio-1');
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.objectContaining({ content: '[Audio]' }),
+        expect.objectContaining({ content: '[Audio - download failed]' }),
       );
     });
 

@@ -4,10 +4,10 @@ import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
 
 import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
-import { sendPoolMessage } from './channels/telegram.js';
+import { sendPoolMessage, sendTelegramVoice } from './channels/telegram.js';
 import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
-import { isValidGroupFolder } from './group-folder.js';
+import { isValidGroupFolder, resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
 
@@ -126,6 +126,51 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   logger.warn(
                     { chatJid: data.chatJid, sourceGroup },
                     'Unauthorized IPC message attempt blocked',
+                  );
+                }
+              } else if (
+                data.type === 'voice' &&
+                data.chatJid &&
+                typeof data.path === 'string'
+              ) {
+                const targetGroup = registeredGroups[data.chatJid];
+                if (
+                  !data.chatJid.startsWith('tg:') ||
+                  !(
+                    isMain ||
+                    (targetGroup && targetGroup.folder === sourceGroup)
+                  )
+                ) {
+                  logger.warn(
+                    { chatJid: data.chatJid, sourceGroup },
+                    'Unauthorized IPC voice attempt blocked',
+                  );
+                } else {
+                  // Map /workspace/group/... to the source group's host folder,
+                  // resolving symlinks so the file can't escape that folder
+                  const rel = path.posix.relative(
+                    '/workspace/group',
+                    data.path,
+                  );
+                  const groupDir = fs.realpathSync(
+                    resolveGroupFolderPath(sourceGroup),
+                  );
+                  const hostPath = fs.realpathSync(path.join(groupDir, rel));
+                  const relHost = path.relative(groupDir, hostPath);
+                  if (
+                    !rel ||
+                    rel.startsWith('..') ||
+                    relHost.startsWith('..') ||
+                    path.isAbsolute(relHost)
+                  ) {
+                    throw new Error(
+                      `Voice path escapes group folder: ${data.path}`,
+                    );
+                  }
+                  await sendTelegramVoice(data.chatJid, hostPath);
+                  logger.info(
+                    { chatJid: data.chatJid, sourceGroup },
+                    'IPC voice sent',
                   );
                 }
               }

@@ -3,7 +3,7 @@ import https from 'https';
 import path from 'path';
 import sharp from 'sharp';
 
-import { Api, Bot } from 'grammy';
+import { Api, Bot, InputFile } from 'grammy';
 
 import { ASSISTANT_NAME, GROUPS_DIR, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
@@ -104,6 +104,22 @@ export async function sendPoolMessage(
   }
 }
 
+// Main bot Api, set on connect (used for IPC voice sends)
+let mainApi: Api | null = null;
+
+/**
+ * Send a local .ogg Opus file as a voice note via the main bot.
+ */
+export async function sendTelegramVoice(
+  chatId: string,
+  filePath: string,
+): Promise<void> {
+  if (!mainApi) throw new Error('Telegram bot not initialized');
+  const numericId = chatId.replace(/^tg:/, '');
+  await mainApi.sendVoice(numericId, new InputFile(filePath));
+  logger.info({ chatId, filePath }, 'Telegram voice sent');
+}
+
 export interface TelegramChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
@@ -124,6 +140,7 @@ export class TelegramChannel implements Channel {
 
   async connect(): Promise<void> {
     this.bot = new Bot(this.botToken);
+    mainApi = this.bot.api;
 
     // Command to get chat ID (useful for registration)
     this.bot.command('chatid', (ctx) => {
@@ -341,8 +358,47 @@ export class TelegramChannel implements Channel {
       }
     });
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
-    this.bot.on('message:voice', (ctx) => storeNonText(ctx, '[Voice message]'));
-    this.bot.on('message:audio', (ctx) => storeNonText(ctx, '[Audio]'));
+    // Download voice/audio to the group's audio/ folder so the agent can access it
+    const storeAudio = async (
+      ctx: any,
+      fileId: string,
+      ext: string,
+      label: string,
+    ) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) return;
+
+      try {
+        const file = await ctx.api.getFile(fileId);
+        const fileUrl = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+
+        const groupDir = resolveGroupFolderPath(group.folder);
+        const audioDir = path.join(groupDir, 'audio');
+        fs.mkdirSync(audioDir, { recursive: true });
+
+        const filename = `tg-${ctx.message.message_id}${ext}`;
+        await downloadFile(fileUrl, path.join(audioDir, filename));
+
+        storeNonText(ctx, `[${label}: /workspace/group/audio/${filename}]`);
+        logger.info(
+          { chatJid, filename },
+          'Telegram audio downloaded and stored',
+        );
+      } catch (err) {
+        logger.error({ chatJid, err }, 'Failed to download Telegram audio');
+        storeNonText(ctx, `[${label} - download failed]`);
+      }
+    };
+
+    this.bot.on('message:voice', (ctx) =>
+      storeAudio(ctx, ctx.message.voice.file_id, '.ogg', 'Voice message'),
+    );
+    this.bot.on('message:audio', (ctx) => {
+      const audio = ctx.message.audio;
+      const ext = path.extname(audio.file_name || '') || '.ogg';
+      return storeAudio(ctx, audio.file_id, ext, 'Audio');
+    });
     this.bot.on('message:document', (ctx) => {
       const name = ctx.message.document?.file_name || 'file';
       storeNonText(ctx, `[Document: ${name}]`);
