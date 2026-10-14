@@ -60,6 +60,7 @@ import {
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+import { isNetworkError } from './network.js';
 
 // Node gives each connection attempt only 250 ms by default (Happy Eyeballs).
 // With IPv6 unreachable and IPv4 to Telegram slower than that, every
@@ -406,6 +407,15 @@ async function runAgent(
     }
 
     if (output.status === 'error') {
+      // A network outage says nothing about the session; keep it so the
+      // conversation survives (e.g. an overnight internet drop)
+      if (isNetworkError(output.error)) {
+        logger.error(
+          { group: group.name, error: output.error },
+          'Container agent network error, keeping session',
+        );
+        return 'error';
+      }
       // Clear the corrupted session so retries start fresh
       delete sessions[group.folder];
       clearSession(group.folder);

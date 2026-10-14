@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { _initTestDatabase, createTask, getTaskById } from './db.js';
+import { isNetworkError } from './network.js';
 import {
   _resetSchedulerLoopForTests,
   computeNextRun,
@@ -45,6 +46,7 @@ describe('task scheduler', () => {
       queue: { enqueueTask } as any,
       onProcess: () => {},
       sendMessage: async () => {},
+      isOnline: async () => true,
     });
 
     await vi.advanceTimersByTimeAsync(10);
@@ -147,15 +149,24 @@ describe('task scheduler', () => {
       ...overrides,
     });
 
-    it('retries once 10 minutes later after a network error', () => {
+    it('retries every 10 minutes, up to 3 times, after network errors', () => {
       const task = makeTask();
-      const first = nextRunAfterResult(task, NETWORK_ERROR);
-      expect(new Date(first!).getTime()).toBe(Date.now() + 10 * 60_000);
-
-      // The retry also failing falls back to the regular schedule
+      for (let i = 0; i < 3; i++) {
+        const retry = nextRunAfterResult(task, NETWORK_ERROR);
+        expect(new Date(retry!).getTime()).toBe(Date.now() + 10 * 60_000);
+      }
+      // A fourth consecutive failure falls back to the regular schedule
       expect(nextRunAfterResult(task, NETWORK_ERROR)).toBe(
         computeNextRun(task),
       );
+    });
+
+    it('resets the retry count after a successful run', () => {
+      const task = makeTask();
+      nextRunAfterResult(task, NETWORK_ERROR);
+      nextRunAfterResult(task, null);
+      const retry = nextRunAfterResult(task, NETWORK_ERROR);
+      expect(new Date(retry!).getTime()).toBe(Date.now() + 10 * 60_000);
     });
 
     it('does not retry other errors or successful runs', () => {
@@ -177,5 +188,63 @@ describe('task scheduler', () => {
       const task = makeTask({ schedule_type: 'once' as const });
       expect(nextRunAfterResult(task, NETWORK_ERROR)).not.toBeNull();
     });
+  });
+
+  it('defers a due task by 10 minutes while offline, without running it', async () => {
+    createTask({
+      id: 'task-offline',
+      group_folder: 'test-group',
+      chat_jid: 'test@g.us',
+      prompt: 'run',
+      schedule_type: 'cron',
+      schedule_value: '0 2 * * *',
+      context_mode: 'isolated',
+      next_run: new Date(Date.now() - 60_000).toISOString(),
+      status: 'active',
+      created_at: '2026-02-22T00:00:00.000Z',
+    });
+
+    const registeredGroups = vi.fn(() => ({}));
+    const enqueueTask = vi.fn(
+      (_groupJid: string, _taskId: string, fn: () => Promise<void>) => {
+        void fn();
+      },
+    );
+
+    startSchedulerLoop({
+      registeredGroups,
+      getSessions: () => ({}),
+      queue: { enqueueTask } as any,
+      onProcess: () => {},
+      sendMessage: async () => {},
+      isOnline: async () => false,
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    const task = getTaskById('task-offline');
+    expect(task?.status).toBe('active');
+    const deferredBy = new Date(task!.next_run!).getTime() - Date.now();
+    expect(deferredBy).toBeGreaterThan(9 * 60_000);
+    expect(deferredBy).toBeLessThanOrEqual(10 * 60_000);
+    // Never got as far as looking up the group to run it
+    expect(registeredGroups).not.toHaveBeenCalled();
+  });
+});
+
+describe('isNetworkError', () => {
+  it('matches connection failures and ignores other errors', () => {
+    expect(
+      isNetworkError(
+        'API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)',
+      ),
+    ).toBe(true);
+    expect(isNetworkError('getaddrinfo ENOTFOUND api.anthropic.com')).toBe(
+      true,
+    );
+    expect(isNetworkError('Output blocked by content filtering policy')).toBe(
+      false,
+    );
+    expect(isNetworkError(null)).toBe(false);
   });
 });

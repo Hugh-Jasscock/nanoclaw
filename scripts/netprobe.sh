@@ -5,10 +5,18 @@
 # gets "connection refused". Only IPv4 counts as a failure: this network has no
 # working IPv6 (checked 2026-10-13), and the host and containers both prefer IPv4.
 # IPv6 results are still recorded alongside each failure.
+#
+# After an outage of OUTAGE_RESTART_MIN minutes or more, NanoClaw is restarted
+# once no agent containers are running, to clear any connection or state left
+# stuck by the outage (e.g. internet dropping overnight).
 
 export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 LOG="$HOME/nanoclaw/logs/netprobe.log"
+STATE="$HOME/nanoclaw/logs/.netprobe-state"
 TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+OUTAGE_RESTART_MIN=10
+# Give up waiting for containers to go idle after this long
+RESTART_WAIT_MAX_MIN=120
 now=$(date '+%Y-%m-%d %H:%M:%S')
 failed=0
 results=""
@@ -41,6 +49,33 @@ if [ $failed -eq 1 ]; then
 elif [ "$(date +%M)" = "00" ]; then
   echo "[$now] heartbeat ok" >> "$LOG"
 fi
+
+# Track outages: down_since=<epoch> while down, restart_pending=<epoch> after a long one
+down_since=$(sed -n 's/^down_since=//p' "$STATE" 2>/dev/null)
+restart_pending=$(sed -n 's/^restart_pending=//p' "$STATE" 2>/dev/null)
+epoch=$(date +%s)
+if [ $failed -eq 1 ]; then
+  [ -z "$down_since" ] && down_since=$epoch
+elif [ -n "$down_since" ]; then
+  mins=$(( (epoch - down_since) / 60 ))
+  echo "[$now] RECOVERED after ${mins} min" >> "$LOG"
+  [ $mins -ge $OUTAGE_RESTART_MIN ] && restart_pending=$epoch
+  down_since=""
+fi
+
+if [ $failed -eq 0 ] && [ -n "$restart_pending" ]; then
+  if [ -z "$(container ls -q 2>/dev/null)" ]; then
+    launchctl kickstart -k "gui/$(id -u)/com.nanoclaw"
+    echo "[$now] restarted NanoClaw after outage" >> "$LOG"
+    restart_pending=""
+  elif [ $(( (epoch - restart_pending) / 60 )) -ge $RESTART_WAIT_MAX_MIN ]; then
+    echo "[$now] skipped post-outage restart: containers stayed busy" >> "$LOG"
+    restart_pending=""
+  fi
+fi
+
+{ [ -n "$down_since" ] && echo "down_since=$down_since"
+  [ -n "$restart_pending" ] && echo "restart_pending=$restart_pending"; } > "$STATE"
 
 # Keep the log bounded
 if [ -f "$LOG" ] && [ "$(stat -f%z "$LOG")" -gt 5000000 ]; then

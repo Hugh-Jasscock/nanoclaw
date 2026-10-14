@@ -19,6 +19,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
+import { isNetworkError, isOnline } from './network.js';
 import { RegisteredGroup, ScheduledTask } from './types.js';
 
 /**
@@ -62,31 +63,37 @@ export function computeNextRun(task: ScheduledTask): string | null {
   return null;
 }
 
-// Transient network failures (host briefly refusing outbound connections) get one retry
+// Network failures while the host looked online get a few spaced retries.
+// Outages themselves are handled before the run: see the isOnline check in runTask.
 const NETWORK_RETRY_DELAY_MS = 10 * 60_000;
-const NETWORK_ERROR_PATTERN =
-  /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|Connection refused/i;
-const retriedTasks = new Set<string>();
+const MAX_NETWORK_RETRIES = 3;
+const networkRetries = new Map<string, number>();
 
 /**
  * Pick when a task runs next. A run that failed on a network error is retried
- * once after NETWORK_RETRY_DELAY_MS, unless its regular next run comes sooner.
+ * after NETWORK_RETRY_DELAY_MS, up to MAX_NETWORK_RETRIES times, unless its
+ * regular next run comes sooner.
  */
 export function nextRunAfterResult(
   task: ScheduledTask,
   error: string | null,
 ): string | null {
   const nextRun = computeNextRun(task);
-  const wasRetry = retriedTasks.delete(task.id);
-  if (!error || wasRetry || !NETWORK_ERROR_PATTERN.test(error)) return nextRun;
+  const attempts = networkRetries.get(task.id) ?? 0;
+  networkRetries.delete(task.id);
+  if (!isNetworkError(error) || attempts >= MAX_NETWORK_RETRIES) return nextRun;
 
   const retryAt = Date.now() + NETWORK_RETRY_DELAY_MS;
   if (nextRun && new Date(nextRun).getTime() <= retryAt) return nextRun;
 
-  retriedTasks.add(task.id);
+  networkRetries.set(task.id, attempts + 1);
   logger.warn(
-    { taskId: task.id, retryAt: new Date(retryAt).toISOString() },
-    'Task failed on a network error, retrying once',
+    {
+      taskId: task.id,
+      attempt: attempts + 1,
+      retryAt: new Date(retryAt).toISOString(),
+    },
+    'Task failed on a network error, retrying',
   );
   return new Date(retryAt).toISOString();
 }
@@ -102,12 +109,26 @@ export interface SchedulerDependencies {
     groupFolder: string,
   ) => void;
   sendMessage: (jid: string, text: string) => Promise<void>;
+  /** Connectivity check before each run; defaults to probing the Anthropic API. */
+  isOnline?: () => Promise<boolean>;
 }
 
 async function runTask(
   task: ScheduledTask,
   deps: SchedulerDependencies,
 ): Promise<void> {
+  // During an outage (e.g. internet down overnight), wait for the connection
+  // instead of failing; the task runs within 10 minutes of it coming back
+  if (!(await (deps.isOnline ?? isOnline)())) {
+    const deferUntil = new Date(Date.now() + NETWORK_RETRY_DELAY_MS);
+    updateTask(task.id, { next_run: deferUntil.toISOString() });
+    logger.warn(
+      { taskId: task.id, deferUntil: deferUntil.toISOString() },
+      'Offline, deferring scheduled task',
+    );
+    return;
+  }
+
   const startTime = Date.now();
   let groupDir: string;
   try {
@@ -312,5 +333,5 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
 /** @internal - for tests only. */
 export function _resetSchedulerLoopForTests(): void {
   schedulerRunning = false;
-  retriedTasks.clear();
+  networkRetries.clear();
 }
