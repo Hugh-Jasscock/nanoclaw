@@ -41,9 +41,23 @@ if [ $failed -eq 1 ]; then
     printf '%s' "$results"
     echo "  default route: $(route -n get default 2>/dev/null | awk '/gateway|interface/{printf "%s ", $0}')"
     gw=$(route -n get default 2>/dev/null | awk '/gateway/{print $2}')
-    [ -n "$gw" ] && echo "  gateway ping: $(ping -c1 -t2 "$gw" 2>&1 | grep -E 'time=|loss' | head -1)"
+    if [ -n "$gw" ]; then
+      echo "  gateway ping: $(ping -c1 -t2 "$gw" 2>&1 | grep -E 'time=|loss' | head -1)"
+      # MAC identifies which physical router we're on (e.g. main vs secondary network)
+      echo "  gateway mac: $(arp -n "$gw" 2>/dev/null | awk '{print $4}')"
+    fi
+    # Separate DNS from connectivity: system resolver vs a public resolver, then a
+    # raw-IP ping and HTTPS connect that need no DNS at all.
+    echo "  dns system: $(dig +short +time=2 +tries=1 api.anthropic.com A 2>&1 | head -2 | tr '\n' ' ')"
+    echo "  dns 1.1.1.1: $(dig +short +time=2 +tries=1 @1.1.1.1 api.anthropic.com A 2>&1 | head -2 | tr '\n' ' ')"
+    echo "  ping 1.1.1.1: $(ping -c1 -t2 1.1.1.1 2>&1 | grep -E 'time=|loss|Unreachable|unreachable' | head -1)"
+    echo "  https by IP: $(curl -4 -sS -o /dev/null --connect-timeout 5 -m 8 -w '%{http_code} connect=%{time_connect}s' https://1.1.1.1/ 2>&1 | tr '\n' ' ')"
+    # First hops show whether the router forwards upstream at all (a refusal in
+    # a few ms with no hop past the gateway means the router itself is rejecting)
+    echo "  route to 1.1.1.1: $(traceroute -n -m 3 -q 1 -w 1 1.1.1.1 2>/dev/null | awk '{printf "%s %s | ", $1, $2}')"
     echo "  tcp established: $(netstat -an -p tcp | grep -c ESTABLISHED)  time_wait: $(netstat -an -p tcp | grep -c TIME_WAIT)"
-    echo "  tailscale: $("$TS" status --self 2>&1 | head -1)"
+    [ -x "$TS" ] && echo "  tailscale: $("$TS" status --self 2>&1 | head -1)"
+    echo "  vpn: $(scutil --nc list 2>/dev/null | grep -E '\((Connected|Connecting)\)' | sed -E 's/.*"([^"]+)".*/\1/' | tr '\n' ' ')"
     echo "  containers running: $(container ls -q 2>/dev/null | tr '\n' ' ')"
   } >> "$LOG"
 elif [ "$(date +%M)" = "00" ]; then
